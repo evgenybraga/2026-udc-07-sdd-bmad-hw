@@ -5,7 +5,7 @@
 Computes an order's price breakdown in integer kopecks by applying the customer's
 loyalty-tier discount and their typed, valid coupons to the item subtotal, then
 adding undiscounted shipping, so the same order, coupons and clock always produce
-the same result. Source: `docs/spec/pricing-discounts.md` (D-1..D-17, AC-1..AC-24).
+the same result. Source: `docs/spec/pricing-discounts.md` (D-1..D-17, AC-1..AC-28).
 
 Shared fixture for every scenario in this spec unless the scenario says otherwise:
 `now = 2026-11-18T12:00:00.000Z` passed explicitly; every coupon has
@@ -24,6 +24,10 @@ Pricing an order with a coupon catalog and an optional clock `now` SHALL return 
 #### Scenario: AC-1: Gold tier, no coupons
 - **WHEN** a Gold customer orders one `standard` item of 100 000 (1 000.00 UAH) with no coupons
 - **THEN** subtotal is 100 000, tier discount is `floor(100 000 * 10 / 100)` = 10 000 (100.00 UAH), coupon discount is 0, shipping is 4 900 (49.00 UAH), and total is `100 000 - 10 000 - 0 + 4 900` = 94 900 (949.00 UAH)
+
+#### Scenario: AC-28: Inputs are unchanged after pricing
+- **WHEN** a Gold customer orders one `standard` item of 20 000 and types `" SAVE10 "` for a whole-order percent coupon `SAVE10` of 10
+- **THEN** tier discount is `floor(20 000 * 10 / 100)` = 2 000, coupon discount is `floor(18 000 * 10 / 100)` = 1 800, total is `20 000 - 2 000 - 1 800 + 4 900` = 21 100 (211.00 UAH), and afterwards `order` and `coupons` deep-equal the copies taken before the call
 
 ### Requirement: Tier discount first, coupons on the after-tier amount
 The tier discount SHALL be computed on the item subtotal first, and coupon discounts SHALL be computed on the amount after the tier discount (sequential, not additive). (D-1)
@@ -65,7 +69,7 @@ A coupon in the catalog SHALL apply only if its code appears in the order's type
 - **THEN** the coupon is ignored because it was never typed: coupon discount is 0, and total is `20 000 + 4 900` = 24 900 (249.00 UAH)
 
 ### Requirement: Typed codes are matched by trim and case-insensitive comparison
-Typed codes SHALL be matched to catalog coupon codes after trimming whitespace and comparing case-insensitively. An unknown typed code SHALL be ignored without error. A code typed more than once SHALL count once, at its first position. (D-10)
+Typed codes SHALL be matched to catalog `Coupon.code` values after the same normalisation on both sides: trim whitespace, then compare case-insensitively. An unknown typed code SHALL be ignored without error. A code typed more than once SHALL count once, at its first position. (D-10)
 
 #### Scenario: AC-19: Whitespace and case are normalised; unknown code ignored
 - **WHEN** an order has one `standard` item of 20 000, `order.coupons = ["  save10 ", "NOPE"]`, and the only catalog coupon is `{ code: "SAVE10", kind: "percent", value: 10 }`
@@ -74,6 +78,10 @@ Typed codes SHALL be matched to catalog coupon codes after trimming whitespace a
 #### Scenario: AC-20: A code typed twice counts once
 - **WHEN** an order has one `standard` item of 20 000, `order.coupons = ["SAVE30", "save30"]`, and the only catalog coupon is `{ code: "SAVE30", kind: "fixed", value: 3 000 }`
 - **THEN** the code counts once: coupon discount is 3 000 (30.00 UAH), not 6 000, and total is `20 000 - 3 000 + 4 900` = 21 900 (219.00 UAH)
+
+#### Scenario: AC-25: Catalog code is trimmed and case-folded
+- **WHEN** an order has one `standard` item of 20 000, `order.coupons = ["save10"]`, and the only catalog coupon is `{ code: "  Save10 ", kind: "percent", value: 10 }`
+- **THEN** the catalog code matches after the same trim and case-folding: coupon discount is `floor(20 000 * 10 / 100)` = 2 000 (20.00 UAH), and total is `20 000 - 2 000 + 4 900` = 22 900 (229.00 UAH)
 
 ### Requirement: Expired coupons are silently ignored
 A coupon whose expiry has passed SHALL contribute 0 and SHALL NOT cause an error. (D-8)
@@ -92,6 +100,14 @@ A coupon SHALL be valid if and only if `now < expiresAt`, comparing instants, wh
 #### Scenario: AC-18: One millisecond before expiry the coupon is valid
 - **WHEN** the same order and coupon as AC-17 are priced with `now = 2026-11-18T11:59:59.999Z`
 - **THEN** the coupon is valid: coupon discount is `floor(20 000 * 10 / 100)` = 2 000 (20.00 UAH), and total is `20 000 - 2 000 + 4 900` = 22 900 (229.00 UAH)
+
+#### Scenario: AC-26: Omitted now uses the clock; future expiry applies
+- **WHEN** `now` is omitted, an order has one `standard` item of 20 000, and a typed whole-order percent coupon of 10 has `expiresAt = "2099-01-01T00:00:00.000Z"`
+- **THEN** the default clock is before expiry, so the coupon applies: coupon discount is `floor(20 000 * 10 / 100)` = 2 000 (20.00 UAH), and total is `20 000 - 2 000 + 4 900` = 22 900 (229.00 UAH)
+
+#### Scenario: AC-27: Omitted now uses the clock; past expiry is ignored
+- **WHEN** `now` is omitted and the same order has that coupon with `expiresAt = "2000-01-01T00:00:00.000Z"`
+- **THEN** the default clock is on or after expiry, so the coupon is ignored: coupon discount is 0, and total is `20 000 + 4 900` = 24 900 (249.00 UAH)
 
 ### Requirement: Minimum subtotal is checked against the pre-discount order subtotal
 A coupon with `minSubtotalKopecks` SHALL be eligible only if the whole-order item subtotal before any discount satisfies `subtotal >= minSubtotalKopecks`. This SHALL hold for category coupons too; the threshold is never compared with a category subtotal. (D-6)

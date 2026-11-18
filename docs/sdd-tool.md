@@ -58,7 +58,7 @@ From `/openspec-propose`, under `openspec/changes/add-order-discounts/`:
 | Risk: amounts above `Number.MAX_SAFE_INTEGER` overflow | **New.** It is dismissed as unreachable and no BigInt is used. |
 | Risk: per-category tier flooring may differ from the order-level tier discount by up to 1 kopeck | Re-encoded. D-5 already accepts this. |
 | Open question: whether the catalog `Coupon.code` is also trimmed | **New.** It is a real gap in D-10 wording. D-13's "unique after trim + case-folding" suggests yes. |
-| Open question: there is no AC for the default `now`, for input immutability, or for the D-3 tie-break order (AC-6 only proves that one coupon applies) | Partly new. The spec admits the tie-break is unobservable. Missing ACs for the `now` default and immutability were not flagged before. |
+| Open question: there is no AC for the default `now`, for input immutability, or for the D-3 tie-break order (AC-6 only proves that one coupon applies) | Partly new. The spec admits the tie-break is unobservable. Missing ACs for the `now` default and immutability were not flagged before. The catalog-code trim, the default `now`, and input immutability were resolved in Task C (AC-25..AC-28). |
 | `openspec validate --strict` caught a requirement over 500 characters | **New.** It is a format check, not a semantic one. The agent fixed it by moving the shared fixture into `## Purpose`, and the next two runs passed. |
 
 **Net:** the tool added a task plan with verification steps, one real wording

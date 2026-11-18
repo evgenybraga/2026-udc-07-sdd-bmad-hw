@@ -47,7 +47,7 @@ implemented:
 | D-7 | Can the total become negative? | No. The total coupon discount is capped at the item amount after tier (`subtotal - tierDiscount`); shipping is always charged as computed by `shippingKopecks`. | Total is never below shipping. |
 | D-8 | Expired coupon: silent or error? | Silently ignored (contributes 0), no error. | The contract has no error channel; user messaging is UI, out of scope. |
 | D-9 | Which clock decides expiry? | Optional 3rd parameter `now: Date` (default: current time). A coupon is valid iff `now < expiresAt`, comparing instants. `expiresAt` is ISO-8601 with an explicit `Z` or UTC offset; other formats are out of scope (D-13). | Deterministic tests; matches "not valid on or after this instant" in `types.ts`. |
-| D-10 | How are typed codes matched to coupons? | `Order.coupons` strings are matched to `Coupon.code` after trim + case-insensitive comparison. Unknown code is ignored. A code typed twice counts once (at its first position). | The order holds strings; the engine receives `Coupon` objects. |
+| D-10 | How are typed codes matched to coupons? | `Order.coupons` strings are matched to `Coupon.code` after trim + case-insensitive comparison. `Coupon.code` in the catalog is normalised the same way (trim + case-insensitive). Unknown code is ignored. A code typed twice counts once (at its first position). | The order holds strings; the engine receives `Coupon` objects. |
 | D-11 | Fixed coupon larger than its base / category absent? | Fixed coupon discount = `min(value, its base)`. A category coupon whose category is absent from the order gives 0. | No negative line. |
 | D-12 | Which categories does the tier apply to? | All item categories (`standard`, `fresh`, `digital`); not to shipping. | The ticket makes no exceptions. |
 | D-13 | Invalid coupon data? | Out of scope; input is assumed valid: a percent coupon `value` is an integer 0–100; fixed values are non-negative; coupon codes in `coupons[]` are unique after trim + case-folding; `expiresAt` is ISO-8601 with an explicit `Z` or offset. Anything else (percent > 100, non-integer percent, negative values, duplicate codes, other date formats) is invalid input with undefined behaviour. | Validation is a separate feature. |
@@ -92,12 +92,16 @@ implemented:
 - **AC-22:** WHEN a Gold customer orders one `digital` item of 30 000 (300.00 UAH) with no coupons, THEN tier discount `floor(30 000 * 10 / 100)` = 3 000 (30.00 UAH), shipping 0 (all-digital), total `30 000 - 3 000 + 0` = 27 000 (270.00 UAH). *(D-12)*
 - **AC-23:** WHEN an order has one `standard` item of 20 000 (200.00 UAH), `order.coupons = []`, and `coupons[]` contains a valid whole-order percent coupon `SAVE10` of 10, THEN the coupon is ignored because it was never typed: coupon discount 0, total `20 000 + 4 900` = 24 900 (249.00 UAH). *(D-17)*
 - **AC-24:** WHEN an order has `standard` 40 000 + `fresh` 10 000 and a `fresh` fixed coupon of 2 000 with `minSubtotalKopecks = 50 000`, THEN the threshold is compared with the whole-order subtotal 50 000 (not the `fresh` subtotal 10 000), so the coupon applies: coupon discount `min(2 000, 10 000)` = 2 000 (20.00 UAH), total `50 000 - 2 000 + 4 900` = 52 900 (529.00 UAH). *(D-6)*
+- **AC-25:** WHEN an order has one `standard` item of 20 000, `order.coupons = ["save10"]`, and the only `Coupon` is `{ code: "  Save10 ", kind: "percent", value: 10 }`, THEN the catalog code matches after the same trim + case-folding: coupon discount `floor(20 000 * 10 / 100)` = 2 000 (20.00 UAH), total `20 000 - 2 000 + 4 900` = 22 900 (229.00 UAH). *(D-10)*
+- **AC-26:** WHEN `now` is omitted, an order has one `standard` item of 20 000, and a typed whole-order percent coupon of 10 has `expiresAt = "2099-01-01T00:00:00.000Z"`, THEN the default clock is before expiry so the coupon applies: coupon discount `floor(20 000 * 10 / 100)` = 2 000 (20.00 UAH), total `20 000 - 2 000 + 4 900` = 22 900 (229.00 UAH). *(D-9, default clock)*
+- **AC-27:** WHEN `now` is omitted and the same order has that coupon with `expiresAt = "2000-01-01T00:00:00.000Z"`, THEN the default clock is on or after expiry so the coupon is ignored: coupon discount 0, total `20 000 + 4 900` = 24 900 (249.00 UAH). *(D-9, default clock)*
+- **AC-28:** WHEN a Gold customer orders one `standard` item of 20 000 and types `" SAVE10 "` for a whole-order percent coupon `SAVE10` of 10, THEN tier discount `floor(20 000 * 10 / 100)` = 2 000, coupon discount `floor(18 000 * 10 / 100)` = 1 800, total `20 000 - 2 000 - 1 800 + 4 900` = 21 100 (211.00 UAH), and afterwards `order` and `coupons` deep-equal the copies taken before the call. *(contract: purity)*
 
 Coverage: D-1 (AC-2, AC-9, AC-11), D-2 (AC-1, AC-3), D-3 (AC-4, AC-5, AC-6),
 D-4 (AC-8, AC-9), D-5 (AC-5, AC-7), D-6 (AC-10, AC-11, AC-12, AC-24), D-7
-(AC-13, AC-14), D-8 (AC-16), D-9 (AC-17, AC-18), D-10 (AC-19, AC-20), D-11
+(AC-13, AC-14), D-8 (AC-16), D-9 (AC-17, AC-18, AC-26, AC-27), D-10 (AC-19, AC-20, AC-25), D-11
 (AC-3, AC-13, AC-15), D-12 (AC-1, AC-22), D-14 (AC-21), D-16 (AC-7, AC-14),
-D-17 (AC-23). D-13 and D-15 are scope decisions with no runtime behaviour to
+D-17 (AC-23). AC-28 covers the section 5 purity contract. D-13 and D-15 are scope decisions with no runtime behaviour to
 test; the D-3 tie-break and D-10 first-position rule are not observable in
 `PriceBreakdown` (see D-3).
 
@@ -139,4 +143,4 @@ npm run typecheck
 - `npm test` is green, including the 8 pre-existing tests in `pricing.test.ts`.
 - `npm run typecheck` reports no errors.
 - Every discount test is named `AC-N: ...` matching an AC id in section 4, and every
-  AC-1 … AC-24 appears in the test output at least once.
+  AC-1 … AC-28 appears in the test output at least once.
